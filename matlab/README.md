@@ -1,21 +1,12 @@
 ---
 author: lunar
-date: Thu 20 Aug 2020 02:27:55 PM CST
+date: Wed 19 Aug 2020 12:12:49 AM CST
 ---
 
-### MATLAB学习笔记
+#### 算法实现的MATLAB版本
+
+没办法，组内要求用MATLAB
 
 |link|description|
 |----|-----------|
-|[data type](data_type.md)|MATLAB数据类型|
-|[vector](vector.md)|MATLAB向量|
-|[array](array.md)|MATLAB数组|
-|[matrix](matrix.md)|MATLAB矩阵|
-|[string](string.md)|MATLAB字符串|
-|[function](function.md)|MATLAB函数|
-|[decisioin](decision.md)|MATLAB决策|
-|[data import](import_data.md)|MATLAB数据导入|
-|[paint](paint.md)|MATLAB绘图|
-|[algebra](algebra.md)|MATLAB代数方程|
-|[calculus](calculus.md)|MATLAB微积分|
-
+|[linear_plan](linear_plan.m)|MATLAB解决线性规划问题|

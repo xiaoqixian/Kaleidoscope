@@ -7,7 +7,7 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 
 [层次分析法](ahp.md)
 
-[模拟退火算法](simulate_annealing.md)
+[模拟退火算法](simulated_annealing.md)
 
 [Dijkstra算法](dijkstra.md)
 
@@ -19,3 +19,4 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 
 [网络流算法](network_flow.md)
 
+[数据拟合算法](numerical_fitting.md)
