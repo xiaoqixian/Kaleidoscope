@@ -20,3 +20,11 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 [网络流算法](network_flow.md)
 
 [数据拟合算法](numerical_fitting.md)
+
+[蚁群算法](ant_colony.md)
+
+[零和博弈](zero_sum.md)
+
+[禁忌搜索算法](tobu_search.md)
+
+[回归分析](regression_analysis.md)
