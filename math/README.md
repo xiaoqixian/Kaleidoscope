@@ -28,3 +28,7 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 [禁忌搜索算法](tobu_search.md)
 
 [回归分析](regression_analysis.md)
+
+[灰色系统分析](grey_system_analysis.md)
+
+[神经网络模型](neural_network.md)
