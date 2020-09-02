@@ -137,4 +137,48 @@ $$
 
 ### 二次插值法
 
+对极小化问题, 当f(t)在[a,b]上连续时, 可以考虑用多项式插值来进行一维搜索. 基本思想为: 在搜索区间内, 不断用低次(不超过三次)多项式来近似目标函数, 并逐步用插值多项式的极小点来逼近极小化问题的最优解.
+
+### 无约束问题的解法
+
+#### 梯度下降法
+
+总是朝着梯度下降最快的方向前进
+
+#### 牛顿法
+
+首先需要了解一下什么是[黑塞矩阵](Hesse_matrix.md)
+
+考虑目标函数f在$x^k$处的二次逼近式
+$$
+f(x)\approx Q(x) = f(x^k) + \nabla f(x^k)^T(x-x^k) + \frac12(x-x^k)^T\nabla^2f(x^k)(x-x^k)
+$$
+
+假设黑塞矩阵
+$$
+\nabla^2 f(x^k) = \begin{bmatrix}
+\frac{\partial^2 f(x^k)} & \dots & \frac{\partial^2 f(x^k)}{\partial x_1\partial x_n}\\
+\vdots & \dots & \vdots \\
+\frac{\partial f(x^k)}{\partial x_n\partial x_1} & \dots & \frac{\partial^2 f(x^k)}{\partial x_n^2}
+\end{bmatrix}
+$$
+正定
+
+由于$\nabla^2 f(x^k)$正定, 函数Q的驻点$x^{k+1}$是Q(x)的极小点. 令
+$$
+\nabla Q(x^{k+1}) = \nabla f(x^k) + \nabla^2 f(x^k)(x^{k+1} - x^k) = 0
+$$
+
+解得
+$$
+x^{k+1} = x^k - [\nabla^2 f(x^k)]^{-1}\nabla f(x^k)
+$$
+
+所以从$x^k$出发的搜索方向为
+$$
+p^k = -[\nabla^2 f(x^k)]^{-1}\nabla f(x^k)
+$$
+
+牛顿法的优点是收敛速度快; 缺点是有时不好用而需采取改进措施, 当维度很高时, 计算矩阵的逆矩阵计算量将会很大.
+
 
