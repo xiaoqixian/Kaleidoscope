@@ -181,4 +181,126 @@ $$
 
 牛顿法的优点是收敛速度快; 缺点是有时不好用而需采取改进措施, 当维度很高时, 计算矩阵的逆矩阵计算量将会很大.
 
+#### 变尺度法
+
+变尺度法由于能够避免计算二阶导数矩阵及其逆矩阵, 对于高纬度问题具有显著的优越性.
+
+为了不计算二阶导数矩阵$[\nabla^2 f(x^k)]$及其逆矩阵, 我们设法构造另一个矩阵, 来逼近二阶导数矩阵, 这一类也称为**拟牛顿法(Quasi-Newton Method)**.
+
+当f(x)是二次函数时, 任两点$x^k$和$x^{k+1}$的梯度之差为
+$$
+\nabla f(x^{k+1}) - \nabla f(x^k) = A(x^{k+1} - x^k)
+$$
+
+因此, 我们构造黑塞矩阵的第k+1次近似$\overline H^{k+1}$满足关系式
+$$
+x^{k+1} - x^k = \overline H^{(k+1)}[\nabla f(x^{(k+1)}) - \nabla f(x^k)]
+$$
+
+这就是**拟牛顿条件**.
+
+令
+$$
+\begin{cases}
+\Delta G^{(k)} = \nabla f(x^{k+1}) - \nabla f(x^k)\\
+\Delta x^k = x^{k+1} - x^k
+\end{cases}
+$$
+
+记
+$$
+\Delta \overline H^{(k)} = \overline H^{(k+1)} - \overline H^{(k)}
+$$
+称为**校正矩阵**.
+
+省略中间过程, 可求得校正矩阵
+$$
+\Delta \overline H^{(k)} = \frac{\Delta x^k(\Delta x^k)^T}{(\Delta G^{(k)})^T\Delta x^k} - \frac{\overline H^{(k)}\Delta G^{(k)}(G^{(k)})^T\Delta H^{(k)}}{(\Delta G^{(k)})^T\overline H^{(k)}\Delta G^{(k)}} \tag{(17)}
+$$
+
+从而有
+$$
+\overline H^{(k+1)} = \overline H^{(k)} + \frac{\Delta x^k(\Delta x^k)^T}{(\Delta G^{(k)})^T\Delta x^k} - \frac{\overline H^{(k)}\Delta G^{(k)}(G^{(k)})^T\Delta H^{(k)}}{(\Delta G^{(k)})^T\overline H^{(k)}\Delta G^{(k)}} \tag{(18)}
+$$
+
+以上矩阵称为**尺度矩阵**, 取第一个尺度矩阵$\overline H^{(0)}$为单位矩阵.
+
+由此可得DFP变尺度法的**计算步骤**为:
+
+1. 给定初始点$x_0$以及梯度允许误差$\varepsilon > 0$
+2. 若$\lvert\nabla f(x^{(0)})\rvert \le\varepsilon$, 则$x_0$为近似点, 停止迭代.否则转下一步.
+3. 令
+$$
+\overline H^{(0)} = I (单位矩阵)\\
+p^0 = -\overline H^{(0)}\nabla f(x^0)
+$$
+在$p^0$方向进行一维搜索, 确定最佳步长$\lambda_0$
+$$
+\min_\lambda f(x^0+\lambda p^0) = f(x^0 + \lambda_0p^0)
+$$
+于是可以得到下一个近似点
+$$
+x^1 = x^0 + \lambda_0p^0
+$$
+4. 对于近似点$x^k$, 计算其梯度, 若有
+$$
+\lvert\nabla f(x^k)\rvert\le \varepsilon
+$$
+则停止迭代, 最终解为$x^k$; 否则根据式(18)计算$\overline H^{(k)}$, 令$p^k = -\overline H^{(k)}\nabla f(x^k)$. 在$p^k$方向进行一维搜索, 得到$\lambda_k$, 从而得到下一个近似点
+$$
+x^{k+1} = x^k + \lambda_kp^k
+$$
+5. 不断重复第4步直到满足允许误差.
+
+### 约束极值问题
+
+带有约束条件的极值问题称为约束极值问题, 也叫规划问题.
+
+#### 二次规划问题
+
+目标函数为自变量的二次函数的问题称为二次规划问题.
+
+二次规划的模型可以表述为
+$$
+\min \frac12x^THx + f^Tx,\\
+s.t.\quad \begin{cases} Ax\le b\\Aeq\dot x = beq\\ \end{cases}
+$$
+
+MATLAB中求解二次规划的函数为
+`[x, f] = quadprog(H, f, A, b, Aeq, beq, LB, UB, X0, OPTIONS)`
+
+#### 罚函数法
+
+利用罚函数法, 可将非线性规划问题转化为一系列无约束机制问题. 因此也称这种方法为**序列无约束最小化技术, SUMT(Sequential Unconstrained Minization Technique)**.
+
+罚函数法的基本思想是利用问题中的约束函数作出适当的罚函数, 由此构造出带参数的增广目标函数, 把问题转化为无约束线性规划问题.
+
+罚函数法分为外罚函数法和内罚函数法. 现在介绍外罚函数法.
+
+对于问题:
+$$
+\min f(x)\\
+s.t.\quad \begin{cases} g_i(x)\le 0, i = 1,\dots,r,\\ h_j(x)\ge 0, j = 1,\dots,s,\\ k_m(x) = 0, m = 1,\dots,t \end{cases}
+$$
+
+取一个充分大的正数M, 构造函数
+$$
+P(x, M) = f(x) + M\sum_{i=1}^r\max(g_i(x), 0) - M\sum_{i=1}^s\min(h_i(x), 0) + M\sum_{i=1}^t|k_i(x)|
+$$
+
+### MATLAB 求约束极值问题
+
+#### fminbnd 函数
+
+求单变量非线性函数在区间$[x_1, x_2]$上的最小值
+
+语法格式
+`[x, f] = fminbnd(fun, x1, x2, options)`
+
+#### fminimax 函数
+
+可以用来求解带有非线性约束条件的问题
+
+`x = fminimax(fun, x0, A, B, Aeq, Beq, LB, UB, NONLCON)`
+
 
