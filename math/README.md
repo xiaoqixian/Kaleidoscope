@@ -41,6 +41,8 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 
 [微分方程求解](differential_equaltion_solution.md)
 
+[马尔科夫链模型](markov_chain.md)
+
 ### 优秀论文阅读
 
 [城市出租车规划问题](taxi_programming.md)
