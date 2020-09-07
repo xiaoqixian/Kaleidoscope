@@ -43,6 +43,10 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 
 [马尔科夫链模型](markov_chain.md)
 
+[支持向量机(未完)](support_vector_machine.md)
+
+[数据的统计描述和分析(未完)](statistics.md)
+
 ### 优秀论文阅读
 
 [城市出租车规划问题](taxi_programming.md)
