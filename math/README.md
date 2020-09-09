@@ -47,6 +47,10 @@ date: Fri 07 Aug 2020 10:08:32 AM CST
 
 [数据的统计描述和分析(未完)](statistics.md)
 
+### Collectios
+
+[为什么样本方差的分母是n-1?(马同学)](https://www.matongxue.com/madocs/607)
+
 ### 优秀论文阅读
 
 [城市出租车规划问题](taxi_programming.md)
