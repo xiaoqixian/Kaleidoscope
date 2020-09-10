@@ -361,3 +361,84 @@ $F\sim F(m,n)$
 $$
 F\sim F(m,n)\Rightarrow \frac1F\sim F(n,m)
 $$
+
+### 正态总体的情形
+
+**定理**: 设$(X_1,\cdots,X_n)$是取自正态总体$N(\mu, \sigma^2)$的一个样本.
+1. $\overline X \sim N\left(\mu, \frac{\sigma^2}n\right)$
+2. $\frac{(n-1)S^2}{\sigma^2} = \frac1{\sigma^2}\sum_{i=1}^n(X_i-\overline X)^2\sim\chi^2(n-1)$
+3. $\overline X$与$S^2$相互独立.
+
+**定理**: 设$X\sim N(\mu_1, \sigma_1^2), Y\sim N(\mu_2, \sigma_2^2)$, 则有
+$$
+\frac{(\overline X-\overline Y)-(\mu_1-\mu_2)}{\sqrt{\frac{\sigma_1^2}m + \frac{\sigma^2_2}n}}\sim N(0,1)
+$$
+
+## 8. 参数估计
+
+### 8.1 参数估计问题
+
+用于标记总体分布的未知参数被称为**总体参数**. 总体参数虽然未知, 但是取值范围可能已知, 称这个取值范围为**参数空间**.
+
+参数估计分为两类: **点估计**和**区间估计**.
+
+### 8.2 两种常用的点估计
+
+#### 矩估计
+
+**定义**: 设$(X_1,\cdots,X_n)$是取自总体X的一个样本, 记$\alpha_k \widehat{=} E(X^k)$, 如果未知参数 $\theta = \varphi(\alpha_1,\cdots,\alpha_n)$, 那么称估计量$\hat{\theta} = \varphi(A_1,\cdots,A_n)$为 $\theta$ 的**矩估计量**.
+
+**定理**: 设$(X_1,\cdots,X_n)$是取自总体X的一个样本, $E(X) = \mu, D(X) = \sigma^2$, 两者均未知.
+
+1. $\overline X$是未知参数$\mu$的矩估计
+2. $S^2_n$是未知参数$\sigma^2$的矩估计.
+
+所以我们可以通过计算抽查样本的均值和方差来估计总体的期望和方差.
+
+#### 极大似然估计
+
+设$(X_1,\cdots,X_n)$是取自总体X的一个样本,$X$ 的密度函数(或概率函数)为$f(x;\theta),\theta\in\Theta$, $\theta$ 是总体参数, $\Theta$ 是参数空间.
+
+定义
+$$
+L(\theta;x_1,\cdots,x_n) = \prod_{i=1}^nf(x_i;\theta),\theta\in\Theta
+$$
+为**似然函数**. Likelihood Function
+
+**定义**: 设$(X_1,\cdots,X_n)$是取自总体X的一个样本, 如果存在$\hat\theta = \hat\theta(x_1,\cdots,x_n)$, 使得
+$$
+L(\hat\theta) = \max_{\theta\in\Theta} L(\theta)
+$$
+则称$\hat\theta$为$\theta$ 的**极大似然估计值**.
+
+一般通过求解方程
+$$
+\frac{\mathrm d}{\mathrm d\theta}\ln L(\theta) = 0
+$$
+来得到 $\hat\theta$.
+
+### 8.3 估计量的评选标准
+
+#### 无偏估计与渐近无偏估计
+
+**定义**: 如果未知参数 $\theta$ 的估计量 $\hat\theta(X_1,\cdots,X_n)$ 满足
+$$
+E[\hat\theta(X_1,\cdots,X_n)] = \theta
+$$
+则 $\hat\theta$ 称为 $\theta$ 的**无偏估计**.
+
+满足
+$$
+\lim_{n\rightarrow\infty}E[\hat\theta(X_1,\cdots,X_n)] = \theta
+$$
+则称为**渐近无偏估计**.
+
+样本均值是总体均值的无偏估计, 样本方差是总体方差的无偏估计.
+
+#### 相合估计量
+
+### 8.4 置信区间
+
+置信区间是区间估计应用最广泛的一种类型.
+
+我们可以通过上面的方法知道$\overline X$是$\mu$ 的一个较好的点估计, 但是如果
