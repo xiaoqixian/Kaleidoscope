@@ -105,4 +105,20 @@ Linux提供了两种实时调度策略：SCHED_FIFO 和 SCHED_RR，而普通的�
 
 SCHED_FIFO 实现了一种简单的、先入先出的调度算法，其不使用时间片，**处于可运行状态的 SCHED_FIFO 级进程会比任何 SCHED_FIFO 级的进程先得到调度。**直到它自己收到阻塞或显式地释放处理器。当然，更高级别的 SCHED_FIFIO 和 SCHED_RR 级进程还是可以抢占该进程。
 
-SCHED_RR可以认为是带有时间片的SCHED_FIFO，这是一种实时轮流调度算法。
+SCHED_RR可以认为是带有时间片的SCHED_FIFO，这是一种实时轮流调度算法。当 SCHED_RR 任务耗尽它的时间片时，在**同一优先级**的其他实时进程被轮流调度。
+
+对于 SCHED_FIFO 进程，高优先级总是抢占低优先级，但是低优先级进程决不能抢占 SCHED_RR 任务，即便它的时间片耗尽。
+
+### 与调度相关的系统调用
+
+![image-20201021135837679](https://raw.githubusercontent.com/xiaoqixian/Tiara/master/img/image-20201021135837679.png)
+
+#### 与处理器绑定有关的系统调用
+
+Linux调度程序提供强制的处理器绑定 (processor affinity) 机制。在 task_struct 的 cpus_allowed 的位掩码标志中，每一位对应一个系统可用的处理器，用户可以通过 sched_setaffinity() 设置不同的一个或几个位组合的位掩码。
+
+#### 放弃处理器时间
+
+Linux 通过 sched_yield() 系统调用，提供了一种让进程显式地将处理器时间让给其他等待执行进程的机制。它是通过将进程从活动队列移动到过期队列中完成的——这样就能确保进程在一段时间内都不会被执行了。
+
+实时进程属于例外，它们只会被放置到优先级队列的末尾。
