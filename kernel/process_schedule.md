@@ -99,6 +99,12 @@ vruntime变量是已经被标准化了的，具有最小vruntime的进程就是�
 -   内核代码显式调用schedule()；
 -   内核任务阻塞。
 
+#### 内核抢占的实现
+
+linux内核在 thread_info 结构体添加了一个自旋锁标识 `preempt_count` ，称为抢占计数器。
+
+`preempt` > 0，表示禁止内核抢占；=0可以开启内核抢占，<0说明内核出现错误。
+
 ### 实时调度策略
 
 Linux提供了两种实时调度策略：SCHED_FIFO 和 SCHED_RR，而普通的、非实时的调度策略是 SCHED_NORMAL。
