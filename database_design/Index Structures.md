@@ -192,3 +192,8 @@ And after that, we need to update the root. The final result is like:
 
 ![image-20210201222102857](https://i.loli.net/2021/02/01/nEKgMAS3vFLQOCk.png)
 
+>   Should We Delete From B-Tree?
+>
+>   There are B-tree implementations that don't fix up deletions at all. If a leaf has too few keys and pointers, it is allowed to remain as it is. The rationale is that most files grow on balance, and while there might be an occasional deletion that makes a leaf become subminimum, the leaf will probable soon grow again and attain the minimum number of key-pointer pairs once again.
+>
+>   Further, if records have pointers from outside the B-tree index, then we need to replace the record by a "tombstone", and we don't want to delete its pointer from the B-tree anyway. In certain circumstances, when it can be guaranteed that all accesses to the deleted record will go through the B-tree, we can even leave the tombstone in place of the pointer to the record at a leaf of the B-tree. Then, space for the record can be reused.
