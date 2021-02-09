@@ -67,15 +67,7 @@ If $j<i$:
 
 Since there is a chance that all the records may go into one of the blocks, if so, we need to repeat the process on the overfull block.
 
-#### Linear Hash Tables
-
-Extensive hash tables have some obvious defects:
-
-1.  When the bucket array need to double its size, it's a substantial work. So when you insert some certain records, it may take a long time to get it done.
-2.  As the size of the bucket array grows, the memory may be not able to hold it anymore. So part of the extensive hash table may get transported to disk. This causes a sudden increment of disk I/O operation and drags the DB operation speed down.
-3.  If the number of records per block is small. There is a chance that two records have a very similar hash value, for example, the first 20 bits of the hash value are the same. In this case, we have to split millions of blocks in this bucket. Even though maybe there are only like 3 records in our hash table.
-
-### Apendix1
+### Appendix1
 
 #### C++ Implementation of Extensive Hash Tables
 
