@@ -81,7 +81,9 @@ A *minimal basis* for a relation is a basis $B$ that satisfies three conditions:
 
 #### Projecting Functional Dependencies
 
-Suppose we have a relation $R$ with set of functional dependencies $S$, and we project $R$ by computing $R_1=\pi_L(R)$, for some list of attributes $R$. When functional dependencies hold in $R_1$?
+Suppose we have a relation $R$ with set of functional dependencies $S$, and we project $R$ by computing $R_1=\pi_L(R)$, for some list of attributes $R$. When functional dependencies hold in $R_1$? 
+
+This algorithm is very useful when we need to decompose a relation. 
 
 Algorithm:
 
@@ -91,6 +93,21 @@ Algorithm:
     1.  If there is an functional dependency $F$ in $T$ that follows from the other functional dependencies in $T$, remove $F$ from $T$.
     2.  Let $Y\rightarrow B$ be an functional dependency in $T$, with at least two attributes in $Y$, and let $Z$ be $Y$ with one of its attributes removed. If $Z\rightarrow B$ follows from the functional dependencies in $T$, then replace $Y\rightarrow B$ by $Z\rightarrow B$.
     3.  Repeat the above steps in all possible ways until no more changes to $T$ can be made.
+
+By definition, it may be a little hard to understand. Let's take a example: Suppose $R(A,B,C,D)$ has functional dependencies $A\rightarrow B,B\rightarrow C,$ and $C\rightarrow D$. Suppose also that we wish to project out the attribute $B$, leaving a relation $R_1(A,C,D)$. In principle, to find the functional dependencies for $R_1$, we need to take the closure of all eight subsets of $\{A,B,C \}$, using the full set of functional dependencies, including those involving $B$. However, there are some obvious simplifications we can make.
+
+-   Closing the empty set and the set of all attributes cannot yield a nontrivial functional dependency.
+-   If we already know that the closure of some set $X$ is all attributes, then we cannot discover any new functional dependencies by closing supersets of $X$.
+
+Thus, we may start with the closures of the singleton sets, and then move on to the doubleton sets if necessary. For each closure of a set $X$, we add the functional dependency $X\rightarrow E$ for each attribute $E$ that is in $X^+$ and in the schema of $R_1$, but not in $X$.
+
+First, $\{A\}^+ = \{A,B,C,D\}$. Thus, $A\rightarrow C$ and $A\rightarrow D$ hold in $R_1$. Note that $A\rightarrow B$ is true in $R$, but makes no sense in $R_1$ because $B$ is not an attribute of $R_1$.
+
+Next, we consider $\{C\}^+ = \{C,D\}$, from which we get the additional functional dependency $C\rightarrow D$ for $R_1$. 
+
+Since $\{D\}^+ = \{D\}$, we can add no more functional dependencies, and are done with the singletons.
+
+Since $\{A\}^+$ already includes all attributes in $R_1$, there is no point in considering any superset of $\{A\}$. Thus, the only doubleton whose closure we need to take is $\{C,D\}^+ = \{C,D\}$. This observation allows us to add nothing. We are done with the closures, and functional dependencies we have discovered are $A\rightarrow C,A\rightarrow D$ and $C\rightarrow D$. A simpler, equivalent set of functional dependencies for $R_1$ is $A\rightarrow C, C\rightarrow D$. 
 
 ### Design of Relational Database Schemas
 
@@ -115,3 +132,70 @@ Given a relation $R(A_1,A_2,\cdots, A_n)$, we may decompose $R$ into two relatio
 1.  $\{A_1,A_2,\cdots, A_n\} = \{B_1,B_2,\cdots, B_m\}\cup \{C_1,C_2,\cdots,C_k\}$.
 2.  $S= \pi_{B_1,B_2,\cdots,B_m}(R)$
 3.  $T=\pi_{C_1,C_2,\cdots,C_k}(R)$
+
+#### Boyce-Codd Normal Form
+
+The goal of decomposition is to replace a relation by several that do not exhibit anomalies. There is a condition called *Boyce-Codd normal form*, or *BCNF*, under which the anomalies discussed can be guaranteed not to exist.
+
+-   A relation $R$ is in BCNF if and only if: whenever there is a nontrivial functional dependency $A_1A_2\cdots A_n\rightarrow B_1B_2\cdots B_m$ for $R$ , it is the case that $\{A_1,A_2,\cdots, A_n\}$ is a superkey for $R$.
+
+That is, the **left side of every nontrivial functional dependency must be a superkey.** Recall that a superkey need not be minimal. Thus, an equivalent statement of the BCNF condition is that **the left side of every nontrivial functional dependency must contain a key.**
+
+The purpose of arising BCNF is to eliminate redundancies produced by functional dependencies. In BCNF, no attribute can be deduced from other non key attributes by using only functional dependencies. 
+
+#### Decomposition into BCNF
+
+By repeatedly choosing suitable decompositions, we can break any relation schema into a collection of subsets of its attributes with the following important properties:
+
+1.  These subsets are the schemas of relation in BCNF.
+2.  The data in the original relation is represented faithfully by the data in the relations that are the result of the decomposition. Roughly, we need to be able to reconstruct the original relation instance exactly from the decomposed relation instances.
+
+Example: Consider a relation with schema (the schema is about movies)
+$$
+\{title, year, studioName, president, presidentAddress \}
+$$
+$\{title,year\}$ is the only key of the schema, by this two attributes, we can deduce all other attributes. However, the relation is not in BCNF. Cause  once we know the $president$, we are able to know the $presidentAddress$, which violates the rule that *no attribute can be deduced from other non key attributes by using only functional dependencies.* And the $studioName$ can also determines the $president$.
+
+So we need to decompose the relation into three. 
+$$
+\{title, year, studioName\}\\
+\{studioName, president\}\\
+\{president, presidentAddress\}
+$$
+In general, we must keep applying the decomposition rule as many times as needed, until our relations are in BCNF. 
+
+#### BCNF Decomposition Algorithm
+
+INPUT: A relation $R$ with a set of functional dependencies $S$.
+
+OUTPUT: A decomposition of $R$ into a collection of relations, all of which are in BCNF.
+
+METHOD: The following steps can be applied recursively to any relation $R$ and set of functional dependencies $S$.
+
+1.  Check whether $R$ is in BCNF. If so, nothing more need to be done.
+2.  If there are BCNF violations, let one be $X\rightarrow Y$. Use the algorithm we've talked above to compute the closure $X^+$. Choose $R_1 = X^+$ as  one relation and let $R_2$ have attributes $X$ and those attributes of $R$ that are not in $X^+$.
+3.  By projecting functional dependencies, we can compute the sets of $R_1$ and $R_2$; let them be $S_1$ and $S_2$ respectively.
+4.  Recursively decompose $R_1$ and $R_2$ using this algorithm. Return the union of the results of these decompositions.
+
+**Let's do some exercises.**
+
+For all the exercises, do the following:
+
+-   Indicate all the BCNF violations. Do not forget to consider functional dependencies that are not in the given set, but follow from them. However, it is not necessary to give violations that have more than one attribute on the right side.
+-   Decompose the relations, as necessary, into collections of relations that are in BCNF.
+
+Exercises:
+
+1.  $R(A,B,C,D)$ with functional dependencies $AB\rightarrow C, C\rightarrow D$ and $D\rightarrow A$.
+
+    Obviously, $D\rightarrow A$ violates the BCNF rules. We can decompose it as:
+    $$
+    \{A,B,C,D\}\\
+    \{D,A\}
+    $$
+
+2.  $R(A,B,C,D)$ with functional dependencies $B\rightarrow C$ and $B\rightarrow D$.
+
+    The problem is that $A$ can not be determined, but that's OK, the rest of attributes don't violate BCNF.
+
+    
