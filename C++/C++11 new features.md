@@ -76,7 +76,7 @@ C++11中定义了可通过列表初始化的方式来初始化一些结构体，
    - 无虚函数
    - 不能有 {} 和 = 直接初始化的非静态数据成员
 
-C++ 的stl 容器支持通过 {1,2,3,..} 的方式进行初始化，但是对于自定义容器却不行。现在可以通过 `std::initializer_list` 来进行初始化。比如：
+C++ 的stl 容器支持通过 {1,2,3,..} 的方式进行初始化，但是对于自定义容器却不行。现在可以通过 std::initializer_list 来进行初始化，只需要提供一个接受 std::initializer_list 类型参数的构造函数即可。比如：
 
 ```c++
 class FooVector {
@@ -90,9 +90,9 @@ public:
 }
 ```
 
-总之，`std::initializer_list` 可用于一次性传递同类型的多个数据，其内部保存的是所持有对象的引用。
+总之，std::initializer_list 可用于一次性传递同类型的多个数据，其内部保存的是所持有对象的引用。
 
-#### `std::function` 和 bind 绑定器
+#### std::function 和 bind 绑定器
 
 std::function 接受一个函数签名作为模板参数可代表一个可调用对象。
 
@@ -156,13 +156,13 @@ tuple 元组是一个固定大小的**不同类型**值的集合，可通过 std
 
 #### move 语义
 
-move 语义可以将一个左值强制转换为右值，以避免一些不必要的拷贝。move 语义通过 `std::move` 函数实现。
+move 语义可以将一个左值强制转换为右值，以避免一些不必要的拷贝。move 语义通过 std::move 函数实现。
 
 #### forward 和 完美转发
 
 当右值引用作为函数的形参传入函数时，由于其已经被命名，因此被看作一个左值。如果需要保留原来的类型以转发到另一个函数，这种转发称为完美转发（Perfect Forwarding）。
 
-完美转发通过函数 `std::forward<T>` 函数实现，其接受一个模板参数。如果模板参数类型并非引用类型，则其等同于 `std::move` 函数。
+完美转发通过函数 std::forward\<T\> 函数实现，其接受一个模板参数。如果模板参数类型并非引用类型，则其等同于 std::move 函数。
 
 #### emplace_back 减少内存拷贝和移动
 
@@ -172,9 +172,9 @@ emplace_back 能就地通过参数构造对象，不需要拷贝或移动内存�
 
 #### type_traits——类型萃取
 
-1. 生成编译期常量—— `std::integral_constant` 类型，可通过常量成员变量 value 获取对应的值。
+1. 生成编译期常量—— std::integral_constant 类型，可通过常量成员变量 value 获取对应的值。
 
-2. 通过 `std::is_const` 类型判断是否是某个类型，一般配合模板使用。在不知道模板类型的情况下，可通过一些结构体判断是否是某个类型，对应的结果可通过常量成员变量 value 获取。
+2. 通过 std::is_const 类型判断是否是某个类型，一般配合模板使用。在不知道模板类型的情况下，可通过一些结构体判断是否是某个类型，对应的结果可通过常量成员变量 value 获取。
 
    比如，判断是否是 int 类型
 
@@ -196,9 +196,157 @@ emplace_back 能就地通过参数构造对象，不需要拷贝或移动内存�
 
 5. 根据条件选择的 traits
 
-   `std::conditional` 可根据一个判断式选择两个类型中的一个，显然该判断式必须是编译期已知的常量。选择出的类型可通过类型成员变量 type 获取，注意前面要加 typedef 表明这是类型。
+   std::conditional 可根据一个判断式选择两个类型中的一个，显然该判断式必须是编译期已知的常量。选择出的类型可通过类型成员变量 type 获取，注意前面要加 typedef 表明这是类型。
 
 6. 获取可调用对象返回类型的 traits
 
+   std::result_of 可在编译期获取一个可调用对象的返回类型
+
+   ```c++
+   int fn(int) {return int();}
    
+   typedef int(&fn_ref)(int);
+   typedef int(*fn_ptr)(int);
+   
+   struct fn_class {
+       int operator()(int i) {
+           return i;
+       }
+   };
+   
+   int main() {
+       typedef std::result_of<decltype(fn)&(int)>::type A;
+       typedef std::result_of<fn_ref(int)>::type B;
+       typedef std::result_of<fn_ptr(int)>::type C;
+       typedef std::result_of<fn_class(int)>::type D;
+   
+       std::cout << "A: " << std::is_same<int, A>::value << std::endl;
+       std::cout << "B: " << std::is_same<int, B>::value << std::endl;
+       std::cout << "C: " << std::is_same<int, C>::value << std::endl;
+       std::cout << "D: " << std::is_same<int, D>::value << std::endl;
+   
+       return 0;
+   }
+   ```
+
+7. 根据条件禁用或启用某种或某些类型的 traits
+
+   SFINAE(substitution-failure-is-not-an-error) 原则：当进行模板匹配时，如果匹配到不合适的模板并不会报错，而是匹配其他的重载函数。
+
+   std::enable_if 利用 SFINAE 实现根据条件选择重载函数，其原型如下：
+
+   ```c++
+   template <bool B, class T = void>
+   struct enable_if;
+   ```
+
+   基本用法如下：
+
+   ```c++
+   template <typename T>
+   typename std::enable_if<std::is_arithmetic<T>::value, T>::type foo(T t) {
+       return t;
+   }
+   ```
+
+   上述表明只有在 T 为整数或浮点数时才会被重载。
+
+   其还可以用于对于模板的入参类型进行限定
+
+   ```c++
+   template <typename T>
+   T foo(T t, typename std::enable_if<std::is_integral<T>::value, int>::type = 0) {
+       return t;
+   }
+   ```
+
+   还可以用于对不同返回值类型的函数进行重载
+
+   ```c++
+   template <typename T>
+   typename std::enable_if<std::is_arithmetic<T>::value>::type foo(T t) {
+       cout << typeid(T).name() << endl;
+   }
+   
+   template <typename T>
+   typename std::enable_if<std::is_same<T, std::string>::value>::type foo(T t) {
+       cout << typeid(T).name() << endl;
+   }
+   ```
+
+#### 可变参数模板
+
+定义如下：
+
+```c++
+template <typename... T>
+void f(T... args) {
+    cout << sizeof...(args) << endl;
+}
+```
+
+可以通过递归的方式展开参数包，传入一个固定参数和可变参数，递归调用时只传入可变参数包，由于固定参数被优先填充，因此可变参数相当于减少一个，从而达到展开参数包的目的。最后会没有一个参数，因此需要再写一个无参的重载。
+
+```c++
+template <typename T, typename... Args>
+void print(T head, Args... rest) {
+    cout << "Parameter " << head << endl;
+    print(rest...);
+}
+
+void print() {
+    cout << "no parameter" << endl;
+}
+```
+
+也可以通过逗号表达式来展开参数包
+
+```c++
+template <typename T>
+void printArg(T t) {
+    cout << t << endl;
+}
+
+template <typename... Args>
+void expand(Args... args) {
+    std::initlializer_list<int>{(printArg(args), 0)...};
+}
+```
+
+可变参数模板类的参数包展开的方式和可变参数模板函数的展开方式不同，需要通过模板特化或继承方式去展开。
+
+```c++
+template<int...>
+struct IndexSeq {};
+
+template<int N, int... Indexes>
+struct MakeIndexes: MakeIndexes<N-1, N-1, Indexes...> {};
+
+//当N-1=0时的偏特化情况
+template<int... Indexes>
+struct MakeIndexes<0, Indexes...> {
+    typedef IndexSeq<Indexes...> type;
+};
+```
+
+也可以不通过继承方式实现
+
+```c++
+template<int...>
+struct IndexSeq {};
+
+template<int N, int... Indexes>
+struct MakeIndexes {
+    using type = MakeIndexes<N-1, N-1, Indexes...>::type;
+};
+
+template<int... Indexes>
+struct MakeIndexes<0, Indexes...> {
+    using type = IndexSeq<Indexes...>;
+};
+```
+
+#### 可变参数模板和 type_traits 的综合应用
+
+
 

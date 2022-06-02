@@ -1,4 +1,6 @@
-## How WebSocket Works? (Implemented in Rust)
+## How WebSocket Works? (Implemented in Rust) 1
+
+Part1 The WebSocket Protocol by IFTF
 
 ### Design Philosophy
 
@@ -196,7 +198,9 @@ After both sending and receiving a Close message, an endpoint considers the WebS
 
 If a client and server both send a Close message at the same time, both endpoints will have sent and received a Close message and should consider the WebSocket connection closed and close the underlying TCP connection.
 
+#### Data Frames
 
+Data frames are identified by opcodes where the most significant bit is 0. Currently defined opcodes for data frames include 0x1 (Text), 0x2 (Binary).
 
 ### Closing Handshake
 
