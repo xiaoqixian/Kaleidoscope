@@ -1,4 +1,6 @@
-## C++11 new features
+## C++11 new features Part 1
+
+[toc]
 
 ### 语法糖
 
@@ -697,5 +699,161 @@ public:
 };
 ```
 
+### 智能指针
 
+三种智能指针。
+
+#### shared_ptr 
+
+用于多个变量共享一个指针，实行引用计数，计数为0时自动析构。
+
+可通过构造函数或 std::make_shared 函数创建 shared_ptr 
+
+```c++
+std::shared_ptr<int> a(new int(1));
+std::shared_ptr<int> b = std::make_shared<int>(1);
+```
+
+不能将 shared_ptr  直接赋值给一个原始指针。
+
+在构造 shared_ptr  时可指定一个函数用于析构时调用。
+
+#### unique_ptr 
+
+独占的智能指针，不允许将一个 unique_ptr 赋值给另一个 unique_ptr，但是可以通过 std::move 转移给其它的 unique_ptr
+
+unique_ptr 只能通过构造函数来创建。
+
+#### weak_ptr 
+
+用于监视 shared_ptr，不涉及引用计数，没有重载 \* 和 -> 运算符，所以无法接触到指针对应的资源。
+
+- use_count 函数获取引用计数
+- expired 函数判断 shared_ptr 是否被释放
+- lock 升级为 shared_ptr
+
+### 其它特性
+
+#### 委托构造函数和继承构造函数
+
+委托构造函数允许在构造函数中调用另一个构造函数，以减少重复代码。使用了委托构造函数就无法直接对类成员进行初始化了，只能在函数中进行赋值。
+
+在派生类中，可以通过 using Base::Base 的方式直接继承基类的构造函数。
+
+#### 原始字面量
+
+在字符串前加 R 表示不对字符串的任何内容进行转义，字符串的内容就是其字面量。
+
+#### final 和 override 关键字
+
+final 用于修饰虚函数，表明此虚函数不允许被派生类重载。
+
+override 修饰重载函数，用于检查函数签名，避免因为函数签名写错而没有重载某个函数。
+
+### 内存对齐
+
+#### alignas 关键字
+
+可以通过 alignas 关键字扩大某个变量字节对齐的方式，其只能接受一个编译期常量或类型，表明对齐的字节。其既可以修饰某个变量，也可以修饰某个类型，修饰类型时表明所有的同类型表明都遵循这种对齐方式。
+
+```c++
+alignas(32) long long a = 0;
+static const unsigned A = 1;
+struct alignas(A) MyStruct1 {};
+struct alignas(int) MyStruct2 {};
+```
+
+#### alignof 关键字 和 std::alignment_of
+
+alignof 用于运行时获取内存对齐大小，返回 size_t
+
+std::alignment_of 用于编译期获取内存对齐大小，继承自 std::integral_constant.
+
+#### 内存对齐的缓冲区 std::aligned_storage
+
+```c++
+template <std::size_t len, std::size_t align>
+struct aligned_storage;
+```
+
+len 表示类型大小，align 表示内存对齐大小。一般结合 placement new 使用
+
+#### std::max_align_t 和 std::align 操作符
+
+std::max_align_t 用于返回当前平台的最大默认内存对齐类型，对于 malloc 返回的内存，其对齐的方式应当与 std::max_align_t 一致。
+
+std::align 用于在一大块内存中获取一个符合指定内存要求的地址。其原型为
+
+```c++
+void* align( std::size_t alignment,
+             std::size_t size,
+             void*& ptr,
+             std::size_t& space );
+```
+
+- aligment：内存对齐的大小
+- size：分配内存的大小
+- ptr: 内存池的指针
+- space：内存池的大小
+
+一般该函数用于自定义内存池时分配内存用，比如
+
+```c++
+template <std::size_t N>
+struct MyAllocator
+{
+    char data[N];
+    void* p;
+    std::size_t sz;
+    MyAllocator() : p(data), sz(N) {}
+    template <typename T>
+    T* aligned_alloc(std::size_t a = alignof(T))
+    {
+        if (std::align(a, sizeof(T), p, sz))
+        {
+            T* result = reinterpret_cast<T*>(p);
+            p = (char*)p + sizeof(T);
+            sz -= sizeof(T);
+            return result;
+        }
+        return nullptr;
+    }
+};
+```
+
+### 新增算法
+
+#### all_of、any_of 和 none_of 算法
+
+三个算法均用于检查一个列表中的元素是否满足某个一元判断式，返回一个bool值，具体的返回结果由函数名可知。
+
+#### find_if 和 find_if_not 算法
+
+分别用来寻找列表中满足和不满足某个一元判断式的第一个元素的函数。
+
+#### copy_if 算法
+
+copy_if 算法类似于copy算法，但是可以添加一个函数参数判断是否要复制某个元素。
+
+```c++
+    std::vector<int> v = {1,2,3,4,5};
+    std::vector<int> v1(v.size());
+
+    auto it = std::copy_if(v.begin(), v.end(), v1.begin(), [](int i){return i%2!=0;});
+    v1.resize(std::distance(v1.begin(), it));
+
+    std::cout << "v1 size: " << v1.size() << std::endl;
+```
+
+#### iota 算法
+
+生成一个递增的有序数组，递增的值可以指定。
+
+#### minmax_elemen 算法
+
+同时获取列表中的最大值和最小值的算法，数据以 pair 形式返回。
+
+#### is_sorted 和 is_sorted_until 算法
+
+用来判断列表是否应排好序以及直到某个元素已经排好序，前者返回bool值，后者返回已经排好序最后一个元素的迭代器。
 
