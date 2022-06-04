@@ -94,7 +94,18 @@ public:
 
 #### std::function 和 bind 绑定器
 
-std::function 接受一个函数签名作为模板参数可代表一个可调用对象。
+std::function 接受一个函数签名作为模板参数可代表一个可调用对象类型。比如
+
+```c++
+int func(int) {
+    return -1;
+}
+
+#include <functional>
+int main() {
+    std::function<int(int)> f = func;
+}
+```
 
 std::bind 可接受一个可调用对象与占位符生成一个新的可调用对象。比如如果要生成一个将函数的两个参数调换的可调用对象，或者只暂时传入一个参数以达到函数式编程中偏特化的效果：
 
@@ -347,6 +358,344 @@ struct MakeIndexes<0, Indexes...> {
 ```
 
 #### 可变参数模板和 type_traits 的综合应用
+
+实现函数式编程中的链式调用
+
+```c++
+template<typename T>
+class Task;
+
+template<typename Ret, typename... Args>
+class Task<Ret(Args...)> {
+private:
+    std::function<Ret(Args...)> fn;
+public:
+    Task(std::function<Ret(Args...)>&& f): fn(std::move(f)) {}
+    Task(std::function<Ret(Args...)>& f): fn(f) {}
+
+    Ret invoke(Args&&... args) {
+        return this->fn(std::forward<Args>(args)...);
+    }
+
+    template<typename Fn>
+    auto then(Fn&& f) -> Task<typename std::result_of<Fn(Ret)>::type(Args...)> {
+        using return_type = typename std::result_of<Fn(Ret)>::type;
+        auto func = std::move(this->fn);
+
+        return Task<return_type(Args...)>([func, &f](Args&&... args) {
+            return f(func(std::forward<Args>(args)...));
+        });
+    }
+};
+```
+
+调用 then 函数时，将执行本 task 的函数并将结果作为参数传入下一个函数中，并返回一个新的 task
+
+##### 实现 any 类
+
+主要在于通过一对基类和子类分别擦除和保存值的类型，基类为非泛型类，其类型的指针保存在 Any 类中，相当于 Any 不保存值的类型。但是其子类为模板类，在创建时需要指定保存的值的类型。在需要取出值时，传入取出的类型，通过 dynamic_cast 将基类的指针转换为子类，并取出对应的值。从而实现了值类型的擦除和恢复。
+
+```c++
+struct Any {
+    Any(void): m_tpIndex(std::type_index(typeid(void))) {std::cout << "call default constructor" << std::endl;}
+    Any(Any& that): m_ptr(that.clone()), m_tpIndex(that.m_tpIndex) {}
+    Any(Any&& that): m_ptr(std::move(that.m_ptr)), m_tpIndex(that.m_tpIndex) {}
+
+    // use std::decay to remove reference and cv modifier and get the original type
+    // `typename =` equals to `typename T =`, as T is not used, so it can be omitted.
+    template <typename U, typename = typename std::enable_if<!std::is_same<typename std::decay<U>::type, Any>::value, U>::type> 
+    Any(U&& value): m_ptr(new Derived<typename std::decay<U>::type>(std::forward<U>(value))), m_tpIndex(std::type_index(typeid(typename std::decay<U>::type))) {
+        std::cout << "call rvalue constructor" << std::endl;
+    }
+
+    bool isNull() const {
+        return !bool(m_ptr);
+    }
+
+    template <class U> bool Is() const {
+        return m_tpIndex == std::type_index(typeid(U));
+    }
+
+    // transform U into the actual type
+    template <class U>
+    U& AnyCast() {
+        if (!Is<U>()) {
+            std::cout << "can not cast " << typeid(U).name() << " to " << m_tpIndex.name() << std::endl;
+        }
+
+        auto derived = dynamic_cast<Derived<U>*> (m_ptr.get());
+        return derived->m_value;
+    }
+
+    Any& operator=(const Any& a) {
+        std::cout << "call operator = " << std::endl;
+        if (m_ptr == a.m_ptr) {
+            return *this;
+        }
+        m_ptr = a.clone();
+        m_tpIndex = a.m_tpIndex;
+        return *this;
+    }
+
+private:
+    struct Base;
+    typedef std::unique_ptr<Base> BasePtr;
+
+    struct Base {
+        virtual ~Base() {}
+        virtual BasePtr clone() const = 0;
+    };
+
+    template <typename T>
+    struct Derived: Base {
+        template <typename U>
+        Derived(U&& value): m_value(std::forward<U>(value)) {}
+
+        BasePtr clone() const {
+            return BasePtr(new Derived<T>(this->m_value));
+        }
+
+        T m_value;
+    };
+
+    BasePtr clone() const {
+        if (m_ptr != nullptr) {
+            return m_ptr->clone();
+        }
+        return nullptr;
+    }
+
+    BasePtr m_ptr;
+    std::type_index m_tpIndex;
+};
+
+int main() {
+    Any n;
+    auto r = n.isNull();
+    std::cout << "auto r" << std::endl;
+    double d = 1.3;
+    n = d;
+    std::cout << n.Is<double>() << std::endl;
+    return 0;
+}
+```
+
+#### 实现 function_traits
+
+通过 function_traits 可以获取函数的一些基本信息，包括函数类型、返回类型、参数个数和参数类型。
+
+```c++
+template<typename T>
+class function_traits;
+
+template<typename Ret, typename... Args>
+class function_traits<Ret(Args...)> {
+public:
+    enum { arity = sizeof...(Args) };
+    typedef Ret function_type(Args...);
+    typedef Ret return_type;
+
+    using stl_function_type = std::function<function_type>;
+    typedef Ret(*pointer)(Args...);
+
+    template<size_t I>
+    struct args {
+        static_assert(I < arity, "index is out of range");
+        // Provides compile-time indexed access to the types of the elements of the tuple
+        using type = typename std::tuple_element<I, std::tuple<Args...>>::type;
+    };
+};
+
+#include <iostream>
+int main() {
+    int func(int a, float b);
+
+    std::cout << std::is_same<function_traits<decltype(func)>::return_type, int>::value << std::endl;
+
+    std::cout << (function_traits<decltype(func)>::arity == 2) << std::endl;
+}
+```
+
+#### 实现 variant
+
+variant 类似于 Any，能够代表定义的多种类型，允许赋不同类型的值给它，类型会被擦除，在取出时再重新确定。
+
+```c++
+typedef variant<int, char, double> vt;
+vt v = 1;
+v = '2';
+v = 12.32;
+```
+
+主要实现方法是通过内存对齐的缓冲区 std::aligned_storage 记录数据，通过 type_index 确定类型。
+
+要设立缓冲区首先显然需要确定所有类型中最大的一个，某个类型内存对齐后的大小可以由 std::alignment_of\<T\>::value 确定，因此需要创建一个结构体可以从多个编译期常量中选出最大的一个，这需要前面提到的继承方式来展开可变模板参数包的方式来完成。
+
+```c++
+template <std::size_t arg, std::size_t... rest>
+struct IntegerMax;
+
+template <std::size_t arg>
+struct IntegerMax<arg>: std::integral_constant<std::size_t, arg> {};
+
+template <std::size_t arg1, std::size_t arg2, std::size_t... rest>
+struct IntegerMax<arg1, arg2, rest...>: std::integral_constant<std::size_t, arg1 <= arg2 ? 
+    IntegerMax<arg2, rest...>::value : IntegerMax<arg1, rest...>::value> {};
+
+template <typename... TypeList>
+struct MaxAlign: std::integral_constant<std::size_t, IntegerMax<std::alignment_of<TypeList>::value...>::value> {};
+```
+
+其次，variant 可以赋值的类型应当是变量在创建时就已经确定的，在进行二次赋值时需要判断是否在候选范围内，如果不再则抛出异常。因此，需要创建一个结构体用于判断某个类型是否在一个类型列表中。
+
+```c++
+// if List contains type T
+template <typename T, typename... List>
+struct Contains;
+
+template <typename T, typename Head, typename... Rest>
+struct Contains<T, Head, Rest...>: std::conditional<std::is_same<T, Head>::value, std::true_type, Contains<T, Rest...>>::type {};
+
+//end recursion
+template <typename T>
+struct Contains<T>: std::false_type {};
+```
+
+完整程序如下：
+
+```c++
+// select max aligned type size
+template <std::size_t arg, std::size_t... rest>
+struct IntegerMax;
+
+template <std::size_t arg>
+struct IntegerMax<arg>: std::integral_constant<std::size_t, arg> {};
+
+template <std::size_t arg1, std::size_t arg2, std::size_t... rest>
+struct IntegerMax<arg1, arg2, rest...>: std::integral_constant<std::size_t, arg1 <= arg2 ? 
+    IntegerMax<arg2, rest...>::value : IntegerMax<arg1, rest...>::value> {};
+
+template <typename... TypeList>
+struct MaxAlign: std::integral_constant<std::size_t, IntegerMax<std::alignment_of<TypeList>::value...>::value> {};
+
+// if List contains type T
+template <typename T, typename... List>
+struct Contains;
+
+template <typename T, typename Head, typename... Rest>
+struct Contains<T, Head, Rest...>: std::conditional<std::is_same<T, Head>::value, std::true_type, Contains<T, Rest...>>::type {};
+
+//end recursion
+template <typename T>
+struct Contains<T>: std::false_type {};
+
+template <typename... Types>
+struct Variant {
+    enum {
+        data_size = IntegerMax<sizeof(Types)...>::value,
+        align_size = MaxAlign<Types...>::value
+    };
+
+    using data_t = typename std::aligned_storage<data_size, align_size>::type;
+private:
+    data_t _data;
+    std::type_index _type_index;
+
+    template <typename T>
+    void destory_as(const std::type_index& id, void* data) {
+        if (id == std::type_index(typeid(T))) {
+            reinterpret_cast<T*>(data)->~T();
+        }
+    }
+
+    void destory(const std::type_index& id, void* buffer) {
+        [](Types&&...){}((destory_as<Types>(id, buffer), 0)...);
+    }
+
+    template <typename T>
+    void move_as(const std::type_index& id, void* old_v, void* new_v) {
+        if (id == std::type_index(typeid(T))) {
+            new (new_v)T(std::move(*reinterpret_cast<T*>(old_v)));
+        }
+    }
+
+    void move(const std::type_index& id, void* old_v, void* new_v) {
+        [](Types&&...){}((move_as<Types>(id, old_v, new_v), 0)...);
+    }
+
+    template <typename T>
+    void copy_as(const std::type_index& id, const void* old_v, void* new_v) {
+        if (id == std::type_index(typeid(T))) {
+            new (new_v)T(reinterpret_cast<T*>(old_v));
+        }
+    }
+
+    void copy(const std::type_index& id, const void* old_v, void* new_v) {
+        [](Types...){}((copy_as<Types>(id, old_v, new_v), 0)...);
+    }
+
+public:
+    Variant(void): _type_index(std::type_index(typeid(void))) {}
+
+    ~Variant() {
+        this->destory(this->_type_index, &this->_data);
+    }
+
+    Variant(Variant<Types...>&& old): _type_index(old._type_index) {
+        this->move(old._type_index, &old._data, &this->_data);
+    }
+
+    Variant(Variant<Types...>& old): _type_index(old._type_index) {
+        this->copy(old._type_index, &old._data, &this->_data);
+    }
+
+    Variant& operator=(const Variant& old) {
+        this->copy(old._type_index, &old._data, &this->_data);
+        this->_type_index = old._type_index;
+        return *this;
+    }
+
+    Variant& operator=(Variant&& old) {
+        this->move(old._type_index, &old._data, &this->_data);
+        this->_type_index = old._type_index;
+        return *this;
+    }
+
+    template <typename T, typename = typename std::enable_if<Contains<typename std::decay<T>::type, Types...>::value>::type>
+    Variant(T&& value): _type_index(typeid(void)) {
+        std::cout << "reassignd to type " << typeid(T).name()  << std::endl;
+        this->destory(this->_type_index, &this->_data);
+        typedef typename std::decay<T>::type U;
+        new (&this->_data)U(std::forward<T>(value));
+        this->_type_index = std::type_index(typeid(U));
+    }
+
+    template <typename T>
+    bool is() const {
+        return this->_type_index == std::type_index(typeid(T));
+    }
+
+    bool empty() const {
+        return this->_type_index == std::type_index(typeid(void));
+    }
+
+    std::type_index type() const {
+        return this->_type_index;
+    }
+
+    template <typename T>
+    typename std::decay<T>::type get() {
+        using U = typename std::decay<T>::type;
+        if (!this->is<U>()) {
+            std::cout << typeid(U).name() << " is not defined. current type is"
+                << this->_type_index.name() << std::endl;
+            throw std::bad_cast{};
+        }
+
+        return *(U*)(&this->_data);
+    }
+};
+```
 
 
 
