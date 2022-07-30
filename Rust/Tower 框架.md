@@ -468,6 +468,29 @@ trait MakeService<Target, Request>: Sealed<(Target, Request)> {
 }
 ```
 
+MakeService 已经为所有 Response type 为 Service 类型的 Service 自动实现。
+
+```rust
+impl<M, S, Target, Request> MakeService<Target, Request> for M
+where
+    M: Service<Target, Response = S>,
+    S: Service<Request>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Service = S;
+    type MakeError = M::Error;
+    type Future = M::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::MakeError>> {
+        Service::poll_ready(self, cx)
+    }
+    fn make_service(&mut self, target: Target) -> Self::Future {
+        Service::call(self, target)
+    }
+}
+```
+
 #### service_fn 组件
 
 Tower 提供了一个可以快速将一个签名为
@@ -500,3 +523,141 @@ where
 }
 ```
 
+### Reconnect 中间件
+
+Reconnect 是一个可以在发生错误时自动重连的中间件，一个 Reconnect Service 有三种状态：
+
+- Idle: 暂时没有任何服务连接，当在这个状态 poll_ready 时，需要根据内部的一个 MakeService 中间件创建一个 Service Future 并跳到 Connecting(MakeService::Future) 状态
+- Connecting: 通过前一步的 Service Future 进行 poll，如果返回 Ready 则跳到 Connected(Service) 状态，如果有错误则跳到 Idle 状态
+- Connected: 调用内层 Service 的 poll_ready，如果返回错误，则需要重新创建连接，跳到 Idle 状态
+
+在 poll_ready 函数中，遇到 Poll::Ready(Ok(\_)) 或 Poll::Pending 则直接返回，如果遇到 Poll::Ready(Err(\_)) 则不断循环，直到 Service 正常，因此为 Reconnect。从这一点来看，poll_ready 其实永远不会返回 Poll::Ready(Err(\_))，但是为了后续的扩展性，在函数签名上还是有。
+
+Reconnect 如果在非 Connected 状态下调用 call 函数则会 panic。
+
+### Retry 中间件
+
+Retry 中间件试图将多次里层 Service 的 poll 表现为一次，最简单的场景，对于一个比较繁忙的 Service，单次 poll 可能会返回 Error，于是我可能希望将 Service Future 的一次 poll 表现为里层 Service 每隔一段时间进行一次 poll 进行多次，直到成功返回 Ready 或达到次数限制。Retry 中间件就适用于这些场景。
+
+显然上面只是一种最简单的场景，Tower 为了给予用户最大的 Retry 定制化空间，只需要用户决定是否继续 retry 的类型实现 Policy trait
+
+```rust
+trait Policy<Req, Res, E>: Sized {
+  type Future: Future<Output = Self>;
+  fn retry(&self, req: &Req, result: Result<&Res, &E>) -> Option<Self::Future>;
+  fn clone_request(&self, req: &Req) -> Option<Req>;
+}
+```
+
+其中 retry 函数用于决定是否应该继续 retry，如果返回 None 则停止，否则返回 Some(Future)。Future 可以在被 poll 时每次生成一个新的实现了 Policy 的 Retry Service，这意味着每次 retry 之后都可以产生新的 Service，而不是只能一直使用同一种 Policy，进一步增大了自由度。
+
+最后再看 Tower 给的 Retry Service 对于 call 函数的 ResponseFuture 的实现。ResponseFuture 包含三种状态：
+
+- Called(service_future): 可以poll一次里层 Service，如果是 Pending 则直接返回 Pending。否则调用 retry 函数生成一个新的 Retry Service Future，跳到 Checking(retry_future) 状态
+- Checking(retry_future): 等待 retry_future 生成新的 Retry Service 的中间态，如果生成 Retry Service 则跳到 Retrying 状态
+- Retrying: 等待里层 Service poll_ready 的中间态，如果里层 Service 已经 Ready，则调用里层 Service 的call函数生成 service_future 并跳到 Called(service_future) 状态
+
+### SpawnReady 中间件
+
+SpawnReady 在官方文档上的介绍是 "Drive a service to readiness on a background task"。如果我们需要尽快察觉到某个 Service 已经 ready，那我们可能会经常去 poll_ready 一下，而 SpawnReady 就是将这件事包装为一个 Service，并且在内部包装一个 task 用于检查内层 Service 是否 ready。假设 executor 里面只有两个 task，那么一个是真正在做事的 task，另一个则是检查前一个 task 是否 ready 的 task。
+
+```rust
+impl<S, Req> Service<Req> for SpawnReady<S>
+where
+    Req: 'static,
+    S: Service<Req> + Send + 'static,
+    S::Error: Into<BoxError>,
+{
+    type Response = S::Response;
+    type Error = BoxError;
+    type Future = ResponseFuture<S::Future, S::Error>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), BoxError>> {
+        loop {
+            self.inner = match self.inner {
+                Inner::Service(ref mut svc) => {
+                    if let Poll::Ready(r) = svc.as_mut().expect("illegal state").poll_ready(cx) {
+                        return Poll::Ready(r.map_err(Into::into));
+                    }
+                    let svc = svc.take().expect("illegal state");
+                    let rx =   tokio::spawn(svc.ready_oneshot().map_err(Into::into).in_current_span());
+                    Inner::Future(rx)
+                }
+                Inner::Future(ref mut fut) => {
+                    let svc = ready!(Pin::new(fut).poll(cx))??;
+                    Inner::Service(Some(svc))
+                }
+            }
+        }
+    }
+}
+```
+
+通过 ready_oneshot 函数将 Service 包装为一个 ReadyOneshot task，然后通过 tokio::spawn 传入 executor
+
+### Steer 中间件
+
+Steer 中间件用于管理 Service 数组，根据自定义的规则将 request 导向特定的 Service。
+
+```rust
+trait Picker<S, Req> {
+  fn pick(&mut self, r: &Req, services: &[S]) -> usize;
+}
+```
+
+由于 Steer 内部维护多个 Service，所以只有多个 Service 同时 ready， Steer 才会返回 Ready。
+
+```rust
+struct Steer<S, F, Req> {
+  router: F,
+  services: Vec<S>,
+  not_ready: VecDeque<usize>,
+  _phantom: PhantomData<Req>
+}
+impl<S, Req, F> Service<Req> for Steer<S, F, Req>
+where
+    S: Service<Req>,
+    F: Picker<S, Req>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        loop {
+            // must wait for *all* services to be ready.
+            // this will cause head-of-line blocking unless the underlying services are always ready.
+            if self.not_ready.is_empty() {
+                return Poll::Ready(Ok(()));
+            } else {
+                if self.services[self.not_ready[0]]
+                    .poll_ready(cx)?
+                    .is_pending()
+                {
+                    return Poll::Pending;
+                }
+
+                self.not_ready.pop_front();
+            }
+        }
+    }
+
+    fn call(&mut self, req: Req) -> Self::Future {
+        assert!(
+            self.not_ready.is_empty(),
+            "Steer must wait for all services to be ready. Did you forget to call poll_ready()?"
+        );
+
+        let idx = self.router.pick(&req, &self.services[..]);
+        let cl = &mut self.services[idx];
+        self.not_ready.push_back(idx);
+        cl.call(req)
+    }
+}
+```
+
+这样的处理实际会拖累整体的效率，如果某个 request 所需要的 Service 实际是 ready 的，但是可能为了等待其他的 Service 而延缓调用。但是为了兼容 Tower 的核心 API 不得不这么处理，毕竟 poll_ready 会与 request 相关的 Service 只有这一个。
+
+### 结论
+
+Tower 将网络编程中常见的行为抽象为统一的 Service，对外的接口非常统一，并且可以相互叠加，而且是异步式，是一个扩展性非常强大的框架，值得学习一下。
