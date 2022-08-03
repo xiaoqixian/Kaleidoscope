@@ -192,21 +192,19 @@ unsafe fn wake_arc_raw<T: ArcWake>(data: *const ()) {
 }
 ```
 
-#### 单线程 executor
+#### FuturesUnordered
 
-单线程 executor 允许在单线程上复用任意数量的 task，官方建议尽量在多I/O场景，只需要在 I/O 操作之间完成很少的工作的场景下使用。
-
-在单线程 executor 中通过 FutureUnordered struct 来管理所有的 Future，其有一条链表维护所有的 Future，再通过一个队列维护所有需要运行的 Future（当然这里都不是 collections 里面那种普通的链表和队列，由于 FutureUnordered 其实要与线程池 executor 公用，所以这两个数据结构其实还涉及很多原子化操作，在保证原子化且无锁的前提下要自己设计一个链表还挺麻烦的）。
+FuturesUnordered 是一个 Future 的托管容器，其有一条链表维护所有的 Future，再通过一个队列维护所有需要运行的 Future（当然这里都不是 collections 里面那种普通的链表和队列，由于 FuturesUnordered 其实要与单线程和线程池 executor 共用，所以这两个数据结构其实还涉及很多原子化操作，在保证原子化且无锁的前提下要设计一个链表还挺麻烦的）。
 
 ```rust
-struct FutureUnordered<Fut> {
+struct FuturesUnordered<Fut> {
   ready_to_run_queue: Arc<ReadyToRunQueue<Fut>>,//需要运行的Future队列
   head_all: AtomicPtr<Task<Fut>>,//所有Future组成的链表
   is_terminated: AtomicBool
 }
 ```
 
-这里重点看 FutureUnordered 如何实现 Waker，FutureUnordered 将 Future 包装为 Task 使用。
+这里重点看 FuturesUnordered 如何实现 Waker，FuturesUnordered 将 Future 看作一个个 Task 。
 
 ```rust
 struct Task<Fut> {
@@ -219,4 +217,112 @@ struct Task<Fut> {
   woken: AtomicBool//是否已经调用wake函数
 }
 ```
+
+为 Task 实现 ArcWake
+
+```rust
+impl<Fut> ArcWake for Task<Fut> {
+  fn wake_by_ref(arc_self: &Arc<Self>) {
+    let inner = match arc_self.ready_to_run_queue.upgrade() {
+      Some(inner) => inner,
+      None => return,
+    };
+    
+    arc_self.woken.store(true, Relaxed);
+    let prev = arc_self.queued.swap(true, SeqCst);
+    if !prev {
+      inner.enqueue(Arc::as_ptr(arc_self));
+      inner.waker.wake();
+    }
+  }
+}
+```
+
+当一个 Task 运行(被poll)时，其被从 FuturesUnordered 的 ready_to_run_queue 上摘下来，而在 wake 中又会重新放回去。因此，如果 Future 内部调用了 wake，则 Task 会再被放到 ready_to_run_queue 上运行，如果没有则不会。
+
+所以每个 Future 使用的 context 其实是来自于 Task：
+
+```rust
+let waker = Task::waker_ref(task);
+let mut cx = Context::from_waker(&waker);
+future.poll(&mut cx);
+```
+
+FuturesUnordered 本身实现了 Stream trait
+
+```rust
+trait Stream {
+  type Item;
+  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>;
+}
+```
+
+FuturesUnordered 轮流 poll ready_to_run_queue 里面的 Future，根据返回结果返回：
+
+- Poll::Pending: ready_to_run_queue 为空或所有 Future 已经 poll 了一遍
+- Poll::Ready(Some(res)): 某个 Future 返回 Ready(res)
+- Poll::Ready(None): Task 链表为空，所有 Task 都已经结束返回
+
+值得注意的是，在第一种情况下，所有的 Future 都 poll 了一遍，FuturesUnordered 会调用一次 wake，告诉 executor FuturesUnordered 已经运行了一个轮回，wake 具体的实现则取决于 executor。
+
+#### 单线程 executor
+
+单线程 executor 允许在单线程上复用任意数量的 task，官方建议尽量在多I/O、只需要在 I/O 操作之间完成很少的工作的场景下使用。
+
+```rust
+struct LocalPool {
+  pool: FuturesUnordered<LocalFutureObj<'static, ()>>,
+  incoming: Rc<Incoming>
+}
+```
+
+单线程 executor 将 Waker 的 wake 与线程的 wake 绑定，当调用 wake 时，如果 executor 线程处于 park(即阻塞) 状态，则 unpark 线程。
+
+```rust
+struct ThreadNotify {
+  thread: std::thread::Thread,
+  unparked: AtomicBool
+}
+impl ArcWake for ThreadNotify {
+  fn wake_by_ref(arc_self: &Arc<Self>) {
+    let unparked = arc_self.unparked.swap(true, Ordering::Release);
+    if !unparked {
+      arc_self.thread.unpark();
+    }
+  }
+}
+```
+
+先看 LocalPool 如何定义 run 操作：
+
+```rust
+fn run_executor<T, F>(mut f: F) -> T
+where
+	F: FnMut(&mut Context<'_>) -> Poll<T>
+{
+  CURRENT_THREAD_NOTIFY.with(|thread_notify| {
+    let waker = waker_ref(thread_notify);
+    let mut cx = Context::from_waker(&waker);
+    loop {
+      if let Poll::Ready(t) = f(&mut cx) {//f决定了executor的运行方式，只要返回Ready就表明executor结束运行。
+        return t;
+      }
+      while !thread_notify.unparked.swap(false, Ordering::Acquire) {
+        thread::park();
+      }
+    }
+  })
+}
+```
+
+从 FutureUnordered 的角度来看，在 poll 一遍之后，如果需要继续运行，则调用 wake，将 unparked token 置为 true，此时线程不会陷入阻塞；否则 executor 线程会主动陷入阻塞。由于 FutureUnordered 和 executor 实际处于同一线程，因此此时 executor 只能从其他线程 unpark。
+
+这种设计节省了 CPU 资源，使得线程只在有 Future 需要 poll 时需要运行，没有则挂起，再有了就又可以继续运行。
+
+#### 线程池 executor
+
+线程池显然要比单线程 executor 更加复杂，随便一想就想到其至少要实现以下几点：
+
+- 新 spawn 一个 Future，如何分配到某个线程
+- 类似于单线程，在线程没有被调用 wake 时主动阻塞
 
