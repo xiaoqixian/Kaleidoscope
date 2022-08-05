@@ -1,5 +1,7 @@
 # Rust 如何实现 async/await
 
+[toc]
+
 异步编程在 Rust 中的地位非常高，很多 crate 尤其是多IO操作的都使用了 async/await.
 
 首先弄清楚异步编程的几个基本概念：
@@ -326,3 +328,99 @@ where
 - 新 spawn 一个 Future，如何分配到某个线程
 - 类似于单线程，在线程没有被调用 wake 时主动阻塞
 
+对于第一点，使用多生产者单消费者管道 mpsc 进行 Future 的分发，实际的模型其实应该是多消费者单生产者，但是 Rust 并不提供这种管道，所以这里使用管道配合 mutex 使用。
+
+```rust
+struct PoolState {
+  tx: Mutex<mpsc::Sender<Message>>,
+  rx: Mutex<mpsc::Receiver<Message>>,
+  cnt: AtomicUsize,//clone size
+  size: usize//pool size
+}
+```
+
+将 PoolState 包在 Arc 下就变成了 ThreadPool
+
+```rust
+struct ThreadPool {
+  state: Arc<PoolState>
+}
+```
+
+当 executor spawn 一个新的 future 时，只需要将其封装为一个 Task，然后传入管道：
+
+```rust
+fn spwan_obj_ok(&self, future: FutureObj<'static, ()>) {
+  let task = Task {
+    future,
+    wake_handle: Arc::new(WakeHandl {exec: self.clone(), mutex: UnparkMutex::new()}),
+    exec: self.clone()
+  };
+  self.state.send(Message::Run(task));
+}
+```
+
+ThreadPool 也有自定义的 Task：
+
+```rust
+struct Task {
+  future: FutureObj<'static ()>,
+  exec: ThreadPool,
+  wake_handle: Arc<WakeHandle>
+}
+struct WakeHandle {
+  mutex: UnparkMutex<Task>,
+  exec: ThreadPool
+}
+```
+
+Task 主要分为以下状态：
+
+- POLLING: 正在poll
+- REPOLL: 正在 poll 的 Task 如果调用 wake 会变成 REPOLL 状态
+- WAITING： Task 正在等待
+- COMPLETE：Task 已经完成
+
+![threadpool](/Users/lunar/Documents/threadpool.png)
+
+如图为 Task 在不同状态间的转换，有些转换是自动的，比如 poll 返回 Ready 时自动进入 COMPLETE 状态，在 REPOLL 状态会通过调用 wait 函数再次进入 POLLING  状态重复运行一次 poll 函数；有些转换则需要调用函数，比如从 WAITING 进入 POLLING 需要调用 Task 的 run 函数才能运行。poll 返回 Pending 时根据 Future 是否调用 wake 函数分别进入 REPOLL 和 WAITING 状态。
+
+```rust
+impl Task {
+  fn run(self) {
+    let Self { mut future, wake_handle, mut exec } = self;
+    let waker = waker_ref(&wake_handle);
+    let mut cx = Context::from_waker(&waker);
+    unsafe {
+      wake_handle.mutex.start_poll();
+      loop {
+        let res = future.poll_unpin(&mut cx);
+        match res {
+          Poll::Pending => {}
+          Poll::Ready(()) => return wake_handle.mutex.complete(),
+        }
+        let task = Self { future, wake_handle: wake_handle.clone(), exec };
+        match wake_handle.mutex.wait(task) {
+          Ok(()) => return, // we've waited
+          Err(task) => {
+            // someone's notified us
+            future = task.future;
+            exec = task.exec;
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+线程池 executor 和单线程 executor 对待 Pending 的方式，相同点在于如果 Future 没有调用 wake，则放弃 Future，Future 要运行只能重新 spawn。不同点：
+
+- 线程池：如果 Future 调用 wake，所在的线程阻塞式调用 poll 直到返回 Ready 或者 Future 放弃调用 wake
+- 单线程：调用 wake 不会立刻再屌用 poll，但加入到 ready_to_run_queue 里面在下一次循环中被 poll
+
+### 总结
+
+本文只是一篇介绍 Rust 异步编程的原理，并通过具体的仓库稍微深挖一下实现的过程。具体的原因还是官方文档的介绍非常模糊，以我来说，第一次看到 Waker 完全不知道怎么用，底层到底是干了什么，"Future be ready to run again" 又是什么意思。如果不稍微看一下 runtime lib 的源码，有些东西很难理解。
+
+本文只是简单介绍了一个 futures-rs 的实现，executor 方面都忽略了很多细节。而 futures-rs 还有大量的扩展代码藏在 util 目录下，但是这些东西一般看看文档就知道大概做了什么，懂得异步的实现原理就知道大概是怎么实现的，如果实在不懂还是可以去看源码。
